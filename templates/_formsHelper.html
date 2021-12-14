@@ -1,0 +1,43 @@
+{% macro render_field(field) %}
+    {{ field.label }}
+    {% if field.type == 'FileField' %}
+        
+        {% if field.errors %}
+            <div class="custom-file">
+                {{ field(class_="custom-file-input is-invalid", placeholder=field.description, **kwargs)|safe }}
+                <label for="{{ field.id }}" class="custom-file-label">
+                    {{ field.description }}
+                </label>
+            </div>
+            <div class="invalid-feedback d-block">
+                {% for error in field.errors %}
+                <div class="text-danger">{{ error }}</div>
+                {% endfor %}
+            </div>
+        {% else %}
+            <div class="custom-file">
+                {{ field(class_="custom-file-input", placeholder=field.description, **kwargs)|safe }}
+                <label for="{{ field.id }}" class="custom-file-label">
+                    {{ field.description }}
+                </label>
+            </div>        
+        {% endif %}
+    {% else %}
+        {% if field.errors %}
+            {{ field(class_="form-control is-invalid", placeholder=field.description, **kwargs)|safe }}
+            <div class="invalid-feedback">
+                {% for error in field.errors %}
+                <div class="text-danger">{{ error }}</div>
+                {% endfor %}
+            </div>
+        {% elif field.errors == () %}
+            {{ field(class_="form-control", placeholder=field.description, **kwargs)|safe }}
+        {% else %}
+            {% if field.type != 'PasswordField' %}
+                {{ field(class_="form-control is-valid", placeholder=field.description, **kwargs)|safe }}
+            {% else %}
+                {{ field(class_="form-control", placeholder=field.description, **kwargs)|safe }}
+            {% endif %}
+        {% endif %}
+    {% endif %}
+{% endmacro %}

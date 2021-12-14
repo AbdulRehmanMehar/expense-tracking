@@ -1,0 +1,139 @@
+{% from "_formsHelper.html" import render_field %}
+
+{% extends "base.html" %}
+
+{% block title %} Dashboard {% endblock %}
+
+{% block body %}
+
+<div class="container mt-3">
+    <div>
+      <canvas id="myChart"></canvas>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.6.2/chart.min.js" integrity="sha512-tMabqarPtykgDtdtSqCL3uLVM0gS1ZkUAVhRFu1vSEFgvB73niFQWJuvviDyBGBH22Lcau4rHB5p2K2T0Xvr6Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+    <script>
+
+        (function () {
+            fetch("{{ url_for('get_budget') }}").then(function(response) {
+              return response.json();
+            }).then(function(res) {
+              let { results } = res;
+                results = results.sort(function (a, b) {
+                    var dateA = new Date(a.issued_on), dateB = new Date(b.issued_on)
+                    return dateA - dateB
+                });
+              let legend = results.map(result => result.issued_on);
+
+                  const set = new Set(legend);
+
+                const duplicateDates = legend.filter(item => {
+                    if (set.has(item)) {
+                        set.delete(item);
+                    } else {
+                        return item;
+                    }
+                });
+
+                legend = legend.filter(function(item, pos) {
+                    return legend.indexOf(item) == pos;
+                })
+              let investments = results.filter(result => result.mode == 'Investment');
+              let savings = results.filter(result => result.mode == 'Saving');
+
+              let investData = results.map(result => {
+                  if (result.mode == 'Investment')
+                      return {x: result.issued_on, y: result.amount}
+                  if (!duplicateDates.includes(results.issued_on))
+                      return {x: result.issued_on, y: 0}
+              });
+              let savingsData = results.map(result => {
+                  if (result.mode == 'Saving')
+                      return {x: result.issued_on, y: result.amount}
+                  if (!duplicateDates.includes(results.issued_on))
+                      return {x: result.issued_on, y: 0}
+              });
+                console.log(investments, savings)
+
+              const labels = [
+                  'January',
+                  'February',
+                  'March',
+                  'April',
+                  'May',
+                  'June',
+                ];
+
+                const data = {
+                  labels: legend,
+                  datasets: [{
+                    label: 'Investment',
+                    backgroundColor: 'rgb(255, 99, 132)',
+                    borderColor: 'rgb(255, 99, 132)',
+                    data: investData,
+                  },
+                      {
+                          label: 'Savings',
+                            backgroundColor: 'rgb(0, 99, 132)',
+                            borderColor: 'rgb(0, 99, 132)',
+                            data: savingsData,
+                      }]
+                };
+
+                const config = {
+                  type: 'line',
+                  data: data,
+                  options: {
+                        interaction: {
+                          intersect: false,
+                          mode: 'index',
+                        },
+                        plugins: {
+                            title: {
+                                display: true,
+                                text: 'Savings - Investment Plot / Graph'
+                              },
+                          tooltip: {
+                            callbacks: {
+                              footer: (tooltipItems) => {
+                                  let returnable = '';
+                                  tooltipItems.forEach(tti => {
+                                      console.log(tti)
+                                      if (tti.dataset.label == 'Investment') {
+                                          let el = investments.filter(result => result.issued_on == tti.label)[0];
+                                          if (el)
+                                          returnable += 'Invested On: ' + el.description + ' \n';
+                                      }
+
+                                      if (tti.dataset.label == 'Savings') {
+                                          let el = savings.filter(result => result.issued_on == tti.label)[0];
+                                          if (el)
+                                          returnable += 'Savings from: ' + el.description + '\n';
+                                      }
+                                  })
+                                  return returnable;
+                                },
+                            }
+                          }
+                        }
+                      }
+                };
+
+                const myChart = new Chart(
+                    document.getElementById('myChart'),
+                    config
+                  );
+
+            }).catch(function() {
+              console.log("Booo");
+            });
+        })();
+
+
+
+    </script>
+{% endblock %}

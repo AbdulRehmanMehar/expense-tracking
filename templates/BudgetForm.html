@@ -1,0 +1,34 @@
+{% from "_formsHelper.html" import render_field %}
+
+{% extends "base.html" %}
+
+{% block title %} Budget {% endblock %}
+
+{% block body %}
+
+<div class="container mt-3">
+    <div class="card" style="width: 70%; margin: 0 auto;">
+        <div class="card-header">
+            Budget
+        </div>
+        <div class="card-body">
+            <form method="POST" action="{{ url_for('budget') }}">
+                <div class="form-group">
+                    {{ render_field(form.mode) }}
+                </div>
+                <div class="form-group">
+                   {{ render_field(form.description) }}
+                </div>
+                <div class="form-group">
+                   {{ render_field(form.amount) }}
+                </div>
+                <div class="form-group">
+                   {{ render_field(form.issued_on) }}
+                </div>
+                <button type="submit" class="btn btn-outline-primary form-control">Submit</button>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
