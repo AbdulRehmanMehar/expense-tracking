@@ -15,10 +15,44 @@
 {% endblock %}
 
 {% block scripts %}
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@2.0.0/dist/tf.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.6.2/chart.min.js" integrity="sha512-tMabqarPtykgDtdtSqCL3uLVM0gS1ZkUAVhRFu1vSEFgvB73niFQWJuvviDyBGBH22Lcau4rHB5p2K2T0Xvr6Q==" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
     <script>
 
-        (function () {
+        (async function () {
+            function getLastDuration(a) {
+                let daysInMonth = 30.436875;
+                const diff = Date.now() - new Date(a);
+                let years = diff / (365*24*60*60*1000);
+                let month = Math.floor(diff/(24*60*60*1000*daysInMonth))
+                if (years) month = Math.floor(diff/(24*60*60*1000*daysInMonth)) % 12;
+                years = Math.floor(years);
+                return `${years}y ${month}m`;
+            }
+
+            function generateRandomColor() {
+              let letters = '0123456789ABCDEF';
+              let color = '#';
+              for (let i = 0; i < 6; i++) {
+                color += letters[Math.floor(Math.random() * 16)];
+              }
+              return color;
+            }
+
+            const linearModel = tf.sequential();
+            linearModel.add(tf.layers.dense({units: 1, inputShape: [1]}));
+            linearModel.compile({loss: 'meanSquaredError', optimizer: 'sgd'});
+            const xs = tf.tensor1d([5, 10, 15, .20, .4, .30]);
+            const ys = tf.tensor1d([13, 3, 7, 23, 11, 1]);
+
+
+            // Train
+            await linearModel.fit(xs, ys)
+
+            console.log('model trained!')
+
+
+
             fetch("{{ url_for('get_budget') }}").then(function(response) {
               return response.json();
             }).then(function(res) {
@@ -27,71 +61,85 @@
                     var dateA = new Date(a.issued_on), dateB = new Date(b.issued_on)
                     return dateA - dateB
                 });
-              let legend = results.map(result => result.issued_on);
+              let legend = results.map(result => {
+                  return getLastDuration(result.issued_on);
+              });
 
-                  const set = new Set(legend);
 
-                const duplicateDates = legend.filter(item => {
-                    if (set.has(item)) {
-                        set.delete(item);
-                    } else {
-                        return item;
+              let mapModes = results.map(result => result.mode);
+              let allModes = [...new Set(mapModes)];
+              let datasets = [];
+              for (let mode of allModes) {
+                  let dataset = {};
+                  let clr = generateRandomColor();
+                  dataset['label'] = mode;
+                  dataset['backgroundColor'] = clr;
+                  dataset['borderColor'] = clr;
+                  {#dataset['stack'] = 'combined';#}
+                  dataset['raw'] = results.filter(result => result.mode == mode);
+                  dataset['data'] = dataset['raw'].map(result => {
+                      if (result.issued_on)
+                          return {x: getLastDuration(result.issued_on), y: result.amount};
+                  });
+
+                    let ndataset = {};
+                    ndataset['type'] = 'bar';
+                    {#ndataset['stack'] = 'combined';#}
+                    ndataset['label'] = `Predicted ${mode}`;
+                    let clr1 = generateRandomColor();
+
+                      ndataset['backgroundColor'] = clr1;
+                      ndataset['borderColor'] = clr1;
+                    ndataset['data'] = [];
+
+                  if (dataset['data'].length == 1) {
+                      let p2d = dataset['data'][0].y;
+                      if (p2d < 1) p2d = 1;
+                    const output = linearModel.predict(tf.tensor2d([p2d], [1, 1]));
+                    let prediction = Math.floor(Array.from(output.dataSync())[0])
+                    let obj = {
+                        x: dataset['data'][0].x,
+                        y: prediction
+                    };
+                    legend.push(obj.x);
+                    ndataset['data'].push(obj);
+                } else {
+                    let narr = dataset['data'];
+
+                    for (let val of narr) {
+                        let p2d = val.y;
+                        if (p2d < 1) p2d = 1;
+                        const output = linearModel.predict(tf.tensor2d([p2d], [1, 1]));
+                        let prediction = Math.floor(Array.from(output.dataSync())[0])
+                        let obj = {
+                            x: val.x,
+                            y: prediction
+                        };
+                        legend.push(obj.x);
+                        ndataset['data'].push(obj);
                     }
-                });
+                }
 
-                legend = legend.filter(function(item, pos) {
-                    return legend.indexOf(item) == pos;
-                })
-              let investments = results.filter(result => result.mode == 'Investment');
-              let savings = results.filter(result => result.mode == 'Saving');
+                  datasets.push(dataset)
+                  datasets.push(ndataset)
+              }
 
-              let investData = results.map(result => {
-                  if (result.mode == 'Investment')
-                      return {x: result.issued_on, y: result.amount}
-                  if (!duplicateDates.includes(results.issued_on))
-                      return {x: result.issued_on, y: 0}
-              });
-              let savingsData = results.map(result => {
-                  if (result.mode == 'Saving')
-                      return {x: result.issued_on, y: result.amount}
-                  if (!duplicateDates.includes(results.issued_on))
-                      return {x: result.issued_on, y: 0}
-              });
-                console.log(investments, savings)
-
-              const labels = [
-                  'January',
-                  'February',
-                  'March',
-                  'April',
-                  'May',
-                  'June',
-                ];
+                console.log(datasets)
 
                 const data = {
-                  labels: legend,
-                  datasets: [{
-                    label: 'Investment',
-                    backgroundColor: 'rgb(255, 99, 132)',
-                    borderColor: 'rgb(255, 99, 132)',
-                    data: investData,
-                  },
-                      {
-                          label: 'Savings',
-                            backgroundColor: 'rgb(0, 99, 132)',
-                            borderColor: 'rgb(0, 99, 132)',
-                            data: savingsData,
-                      }]
+                  datasets
                 };
 
                 const config = {
-                  type: 'line',
+                    type: 'line',
                   data: data,
                   options: {
-                        interaction: {
-                          intersect: false,
-                          mode: 'index',
+                      scales: {
+                          y: {
+                            stacked: true
+                          }
                         },
+
                         plugins: {
                             title: {
                                 display: true,
@@ -102,17 +150,8 @@
                               footer: (tooltipItems) => {
                                   let returnable = '';
                                   tooltipItems.forEach(tti => {
-                                      console.log(tti)
-                                      if (tti.dataset.label == 'Investment') {
-                                          let el = investments.filter(result => result.issued_on == tti.label)[0];
-                                          if (el)
-                                          returnable += 'Invested On: ' + el.description + ' \n';
-                                      }
-
-                                      if (tti.dataset.label == 'Savings') {
-                                          let el = savings.filter(result => result.issued_on == tti.label)[0];
-                                          if (el)
-                                          returnable += 'Savings from: ' + el.description + '\n';
+                                      if(tti.dataset.label.includes('Predicted')) {
+                                          returnable = "In Next " + tti.label
                                       }
                                   })
                                   return returnable;
@@ -128,8 +167,8 @@
                     config
                   );
 
-            }).catch(function() {
-              console.log("Booo");
+            }).catch(function(err) {
+              console.log("Booo", err);
             });
         })();
 
