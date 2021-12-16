@@ -66,7 +66,7 @@
               });
 
 
-              let mapModes = results.map(result => result.mode);
+              let mapModes = results.map(result => result.mode.name);
               let allModes = [...new Set(mapModes)];
               let datasets = [];
               for (let mode of allModes) {
@@ -76,7 +76,7 @@
                   dataset['backgroundColor'] = clr;
                   dataset['borderColor'] = clr;
                   {#dataset['stack'] = 'combined';#}
-                  dataset['raw'] = results.filter(result => result.mode == mode);
+                  dataset['raw'] = results.filter(result => result.mode.name == mode);
                   dataset['data'] = dataset['raw'].map(result => {
                       if (result.issued_on)
                           return {x: getLastDuration(result.issued_on), y: result.amount};
