@@ -1,10 +1,13 @@
-from flask import Flask, jsonify, Markup, render_template, redirect, url_for, request, flash
+from flask import session, Flask, jsonify, Markup, render_template, redirect, url_for, request, flash
 from flask_sqlalchemy import SQLAlchemy
 from passlib.hash import sha256_crypt
 from flask_login import UserMixin, current_user, LoginManager, login_user, login_required, logout_user
 from sqlalchemy import ForeignKey
-from wtforms import Form, SelectField, IntegerField, EmailField, PasswordField, StringField, DateField, validators, ValidationError
+from wtforms import Form, IntegerField, EmailField, PasswordField, StringField, DateField, validators, ValidationError
 import dataclasses, json
+from flask_session import Session
+from wtforms_sqlalchemy.fields import QuerySelectField
+
 
 
 class EnhancedJSONEncoder(json.JSONEncoder):
@@ -19,7 +22,11 @@ class EnhancedJSONEncoder(json.JSONEncoder):
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'the random string'
 app.config['APP_NAME'] = 'Expense Management'
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/test.db'
+app.config["SESSION_PERMANENT"] = True
+app.config["SESSION_TYPE"] = "filesystem"
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/a.db'
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
+Session(app)
 db = SQLAlchemy(app)
 login_manager = LoginManager()
 login_manager.init_app(app)
@@ -41,7 +48,6 @@ class User(UserMixin, db.Model):
     email: str
     password: str
 
-
     __tablename__ = 'User'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), nullable=False)
@@ -62,7 +68,40 @@ class User(UserMixin, db.Model):
         return sha256_crypt.verify(pwd, self.password)
 
     def __repr__(self):
-        return '<User %r>' % self.username
+        return '<User %r>' % self.name
+
+
+@dataclasses.dataclass
+class Category(db.Model):
+    id: int
+    name: str
+
+    __tablename__ = 'Category'
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), default='Investment', unique=True)
+
+    def __init__(self, name):
+        self.name = name
+
+    def __repr__(self):
+        return self.name
+
+
+@dataclasses.dataclass
+class Profile(db.Model):
+    id: int
+    name: str
+    user: User
+
+    __tablename__ = 'Profile'
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, ForeignKey('User.id'))
+    name = db.Column(db.String(80), nullable=False, unique=True)
+    user = db.relationship("User", backref=db.backref("user", uselist=False))
+
+    def __init__(self, user_id, name):
+        self.user_id = user_id
+        self.name = name
 
 
 @dataclasses.dataclass
@@ -72,23 +111,24 @@ class Budget(db.Model):
     amount: int
     description: str
     issued_on: str
-    user_id: int
+    profile_id: int
     # user: User
 
     id = db.Column(db.Integer, primary_key=True)
-    mode = db.Column(db.String(80), default='Investment')
     amount = db.Column(db.Integer, nullable=False)
     description = db.Column(db.String(80), nullable=False)
     issued_on = db.Column(db.DateTime, nullable=False)
-    user_id = db.Column(db.Integer, ForeignKey('User.id'))
-    user = db.relationship("User", backref=db.backref("user", uselist=False))
+    mode_id = db.Column(db.Integer, ForeignKey('Category.id'))
+    mode = db.relationship("Category", backref=db.backref("mode", uselist=False))
+    profile_id = db.Column(db.Integer, ForeignKey('Profile.id'))
+    profile = db.relationship("Profile", backref=db.backref("profile", uselist=False))
 
-    def __init__(self, mode, amount, description, issued_on, user_id):
-        self.mode = mode
+    def __init__(self, mode_id, amount, description, issued_on, profile_id):
+        self.mode_id = mode_id
         self.amount = amount
         self.description = description
         self.issued_on = issued_on
-        self.user_id = user_id
+        self.profile_id = profile_id
 
 
 # Forms...
@@ -145,10 +185,16 @@ class LoginForm(Form):
         return self.user
 
 
+def get_cats():
+    return Category.query
+
+
 class BudgetForm(Form):
-    mode = SelectField('Type of Budget', [
-        validators.DataRequired()
-    ], choices=['Investment', 'Saving'])
+    mode = QuerySelectField('Mode', query_factory=get_cats, get_pk=lambda a: a.id, get_label=lambda a: a.name, allow_blank=False)
+
+    # mode = SelectField('Type of Budget', [
+    #     validators.DataRequired()
+    # ], choices=['Investment', 'Saving'])
     description = StringField('Describe a little bit', [
         validators.DataRequired(),
         validators.Length(min=10, max=50)
@@ -160,12 +206,29 @@ class BudgetForm(Form):
         validators.DataRequired(),
     ], description='$ 100')
 
+
+class CategoryForm(Form):
+    name = StringField('Name of Category', [
+        validators.DataRequired(),
+        validators.Length(min=3, max=50)
+    ], description='Investment / Saving')
+
+
 # Routes...
 
 
 @login_manager.user_loader
 def load_user(id):
     return User.query.get(int(id))
+
+
+@app.context_processor
+def inject():
+    prof = []
+    if current_user.is_authenticated:
+        prof = Profile.query.filter(Profile.user_id == current_user.id).all()
+        print(prof)
+    return dict(profiles=prof)
 
 
 @app.route('/', methods=['GET', 'POST'])
@@ -175,7 +238,11 @@ def login():
         return redirect(url_for('dashboard'))
 
     if request.method == 'POST' and form.validate():
-        login_user(form.get_user())
+        usr = form.get_user()
+        prof = Profile.query.filter(Profile.user_id == usr.id).first()
+        session['profile_id'] = prof.id
+        session['profile_name'] = prof.name
+        login_user(usr)
         flash('You\'re logged in successfully.', 'success')
         return redirect(url_for('dashboard'))
 
@@ -190,6 +257,8 @@ def register():
     if request.method == 'POST' and form.validate():
         user = User(form.name.data, form.dob.data, form.email.data, form.password.data)
         db.session.add(user)
+        prof = Profile(user.id, 'Main')
+        db.session.add(prof)
         db.session.commit()
         flash('Your email is now registered with ' + app.config['APP_NAME'] + '.', 'success')
         return redirect(url_for('login'))
@@ -215,9 +284,11 @@ def dashboard():
 def budget():
     form = BudgetForm(request.form)
     if request.method == 'POST' and form.validate():
-        bget = Budget(form.mode.data, form.amount.data, form.description.data, form.issued_on.data, current_user.id)
-        db.session.add(bget)
-        db.session.commit()
+        cat = Category.query.filter(Category.name == str(form.mode.data)).first()
+        if cat is not None:
+            bget = Budget(cat.id, form.amount.data, form.description.data, form.issued_on.data, session.get('profile_id'))
+            db.session.add(bget)
+            db.session.commit()
         return redirect(url_for('dashboard'))
     return render_template('BudgetForm.html', form=form)
 
@@ -225,7 +296,40 @@ def budget():
 @app.route('/get-budget')
 @login_required
 def get_budget():
-    return jsonify(dict(results=Budget.query.filter(Budget.user_id == current_user.id).all()))
+    print(session.get('profile_id'))
+    return jsonify(dict(results=Budget.query.filter(Budget.profile_id == session.get('profile_id')).all()))
+
+
+@app.route('/category', methods=['GET', 'POST'])
+@login_required
+def category():
+    form = CategoryForm(request.form)
+    if request.method == 'POST' and form.validate():
+        cat = Category(form.name.data)
+        db.session.add(cat)
+        db.session.commit()
+        return redirect(url_for('dashboard'))
+    return render_template('CategoryForm.html', form=form)
+
+
+@app.route('/profile', methods=['GET', 'POST'])
+@login_required
+def profile():
+    if request.method == 'POST':
+        name = request.get_json()['name']
+        prof = Profile(current_user.id, name)
+        db.session.add(prof)
+        db.session.commit()
+        session['profile_id'] = prof.id
+        session['profile_name'] = prof.name
+        return jsonify(dict(results=prof))
+
+    id = request.args.get('id')
+    if id is not None:
+        prof = Profile.query.filter(Profile.id == id).first()
+        session['profile_id'] = prof.id
+        session['profile_name'] = prof.name
+    return redirect(url_for('dashboard'))
 
 
 if __name__ == '__main__':
