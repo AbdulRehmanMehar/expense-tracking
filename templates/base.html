@@ -105,6 +105,7 @@
                 event.preventDefault();
 
                 let profile_name = prompt('Enter Profile Name');
+                let profile_dob = prompt('Enter Profile Date of Birth "MONTH-DAY-YEAR"');
                 if (profile_name) {
                     const rawResponse = await fetch('{{ url_for("profile") }}', {
                     method: 'POST',
@@ -112,7 +113,7 @@
                       'Accept': 'application/json',
                       'Content-Type': 'application/json'
                     },
-                    body: JSON.stringify({name: profile_name})
+                    body: JSON.stringify({name: profile_name, dob: profile_dob})
                   });
                   const content = await rawResponse.json();
 
