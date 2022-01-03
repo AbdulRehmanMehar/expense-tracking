@@ -1,9 +1,12 @@
+from datetime import datetime
+
 from flask import session, Flask, jsonify, Markup, render_template, redirect, url_for, request, flash
 from flask_sqlalchemy import SQLAlchemy
 from passlib.hash import sha256_crypt
 from flask_login import UserMixin, current_user, LoginManager, login_user, login_required, logout_user
 from sqlalchemy import ForeignKey
-from wtforms import Form, IntegerField, EmailField, PasswordField, StringField, DateField, validators, ValidationError
+from wtforms import Form, IntegerField, EmailField, PasswordField, StringField, DateField, validators, ValidationError, \
+    SelectField
 import dataclasses, json
 from flask_session import Session
 from wtforms_sqlalchemy.fields import QuerySelectField
@@ -24,7 +27,7 @@ app.config['SECRET_KEY'] = 'the random string'
 app.config['APP_NAME'] = 'Expense Management'
 app.config["SESSION_PERMANENT"] = True
 app.config["SESSION_TYPE"] = "filesystem"
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/a.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/a1.db'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 Session(app)
 db = SQLAlchemy(app)
@@ -75,13 +78,16 @@ class User(UserMixin, db.Model):
 class Category(db.Model):
     id: int
     name: str
+    type: str
 
     __tablename__ = 'Category'
     id = db.Column(db.Integer, primary_key=True)
-    name = db.Column(db.String(80), default='Investment', unique=True)
+    name = db.Column(db.String(80), nullable=False)
+    type = db.Column(db.String(80), default='Investment')
 
-    def __init__(self, name):
+    def __init__(self, name, type):
         self.name = name
+        self.type = type
 
     def __repr__(self):
         return self.name
@@ -92,16 +98,19 @@ class Profile(db.Model):
     id: int
     name: str
     user: User
+    dob: str
 
     __tablename__ = 'Profile'
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, ForeignKey('User.id'))
     name = db.Column(db.String(80), nullable=False, unique=True)
+    dob = db.Column(db.DateTime, nullable=False)
     user = db.relationship("User", backref=db.backref("user", uselist=False))
 
-    def __init__(self, user_id, name):
+    def __init__(self, user_id, name, dob):
         self.user_id = user_id
         self.name = name
+        self.dob = dob
 
 
 @dataclasses.dataclass
@@ -117,17 +126,16 @@ class Budget(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     amount = db.Column(db.Integer, nullable=False)
     description = db.Column(db.String(80), nullable=False)
-    issued_on = db.Column(db.DateTime, nullable=False)
+    issued_on = db.Column(db.DateTime, default=datetime.utcnow)
     mode_id = db.Column(db.Integer, ForeignKey('Category.id'))
     mode = db.relationship("Category", backref=db.backref("mode", uselist=False))
     profile_id = db.Column(db.Integer, ForeignKey('Profile.id'))
     profile = db.relationship("Profile", backref=db.backref("profile", uselist=False))
 
-    def __init__(self, mode_id, amount, description, issued_on, profile_id):
+    def __init__(self, mode_id, amount, description, profile_id):
         self.mode_id = mode_id
         self.amount = amount
         self.description = description
-        self.issued_on = issued_on
         self.profile_id = profile_id
 
 
@@ -190,7 +198,7 @@ def get_cats():
 
 
 class BudgetForm(Form):
-    mode = QuerySelectField('Mode', query_factory=get_cats, get_pk=lambda a: a.id, get_label=lambda a: a.name, allow_blank=False)
+    mode = QuerySelectField('Mode', query_factory=get_cats, get_pk=lambda a: a.id, get_label=lambda a: (a.name + ' - ' + a.type), allow_blank=False)
 
     # mode = SelectField('Type of Budget', [
     #     validators.DataRequired()
@@ -199,9 +207,6 @@ class BudgetForm(Form):
         validators.DataRequired(),
         validators.Length(min=10, max=50)
     ], description='Spent on Car/House or Saved from Monthly Salary')
-    issued_on = DateField('Issue Date', [
-        validators.DataRequired(),
-    ], description='01-05-2013')
     amount = IntegerField('Amount ', [
         validators.DataRequired(),
     ], description='$ 100')
@@ -211,7 +216,12 @@ class CategoryForm(Form):
     name = StringField('Name of Category', [
         validators.DataRequired(),
         validators.Length(min=3, max=50)
-    ], description='Investment / Saving')
+    ], description='Describe')
+
+    type = SelectField('Type of Category', [
+        validators.DataRequired(),
+        validators.Length(min=3, max=50)
+    ], choices=[('investment', 'Investment'), ('saving', 'Saving')])
 
 
 # Routes...
@@ -240,8 +250,10 @@ def login():
     if request.method == 'POST' and form.validate():
         usr = form.get_user()
         prof = Profile.query.filter(Profile.user_id == usr.id).first()
-        session['profile_id'] = prof.id
-        session['profile_name'] = prof.name
+        if prof:
+            session['profile_id'] = prof.id
+            session['profile_name'] = prof.name
+            session['profile_dob'] = prof.dob
         login_user(usr)
         flash('You\'re logged in successfully.', 'success')
         return redirect(url_for('dashboard'))
@@ -257,8 +269,6 @@ def register():
     if request.method == 'POST' and form.validate():
         user = User(form.name.data, form.dob.data, form.email.data, form.password.data)
         db.session.add(user)
-        prof = Profile(user.id, 'Main')
-        db.session.add(prof)
         db.session.commit()
         flash('Your email is now registered with ' + app.config['APP_NAME'] + '.', 'success')
         return redirect(url_for('login'))
@@ -285,8 +295,10 @@ def budget():
     form = BudgetForm(request.form)
     if request.method == 'POST' and form.validate():
         cat = Category.query.filter(Category.name == str(form.mode.data)).first()
+        print(cat)
         if cat is not None:
-            bget = Budget(cat.id, form.amount.data, form.description.data, form.issued_on.data, session.get('profile_id'))
+            bget = Budget(cat.id, form.amount.data, form.description.data, session.get('profile_id'))
+            print(bget)
             db.session.add(bget)
             db.session.commit()
         return redirect(url_for('dashboard'))
@@ -305,7 +317,7 @@ def get_budget():
 def category():
     form = CategoryForm(request.form)
     if request.method == 'POST' and form.validate():
-        cat = Category(form.name.data)
+        cat = Category(form.name.data, form.type.data)
         db.session.add(cat)
         db.session.commit()
         return redirect(url_for('dashboard'))
@@ -317,11 +329,14 @@ def category():
 def profile():
     if request.method == 'POST':
         name = request.get_json()['name']
-        prof = Profile(current_user.id, name)
+        dob = request.get_json()['dob']
+        dob = datetime.strptime(dob, '%m-%d-%Y')
+        prof = Profile(current_user.id, name, dob)
         db.session.add(prof)
         db.session.commit()
         session['profile_id'] = prof.id
         session['profile_name'] = prof.name
+        session['profile_dob'] = prof.dob
         return jsonify(dict(results=prof))
 
     id = request.args.get('id')
@@ -329,6 +344,7 @@ def profile():
         prof = Profile.query.filter(Profile.id == id).first()
         session['profile_id'] = prof.id
         session['profile_name'] = prof.name
+        session['profile_dob'] = prof.dob
     return redirect(url_for('dashboard'))
 
 
