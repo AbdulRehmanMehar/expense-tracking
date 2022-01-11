@@ -27,7 +27,8 @@ app.config['SECRET_KEY'] = 'the random string'
 app.config['APP_NAME'] = 'Expense Management'
 app.config["SESSION_PERMANENT"] = True
 app.config["SESSION_TYPE"] = "filesystem"
-app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/a1.db'
+# app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:////tmp/a1.db'
+app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql://username:password@localhost/db_name'
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = True
 Session(app)
 db = SQLAlchemy(app)
