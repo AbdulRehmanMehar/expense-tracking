@@ -83,7 +83,7 @@ class Category(db.Model):
     __tablename__ = 'Category'
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(80), nullable=False)
-    type = db.Column(db.String(80), default='Investment')
+    type = db.Column(db.String(80), default='expense')
 
     def __init__(self, name, type):
         self.name = name
@@ -205,7 +205,7 @@ class BudgetForm(Form):
     # ], choices=['Investment', 'Saving'])
     description = StringField('Describe a little bit', [
         validators.DataRequired(),
-        validators.Length(min=10, max=50)
+        validators.Length(min=0, max=50)
     ], description='Spent on Car/House or Saved from Monthly Salary')
     amount = IntegerField('Amount ', [
         validators.DataRequired(),
@@ -221,7 +221,7 @@ class CategoryForm(Form):
     type = SelectField('Type of Category', [
         validators.DataRequired(),
         validators.Length(min=3, max=50)
-    ], choices=[('investment', 'Investment'), ('saving', 'Saving')])
+    ], choices=[('expense', 'Expense'), ('income', 'Income')])
 
 
 # Routes...
